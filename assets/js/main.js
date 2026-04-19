@@ -8,8 +8,8 @@
 
         const manager = new THREE.LoadingManager();
 
-        let camera, scene, renderer, stats, object, loader, guiMorphsFolder;
-        let mixer;
+let camera, scene, renderer, stats, object, loader, guiMorphsFolder;
+        let mixer, actions = {}, currentAction = null, animationsFolder;
 
         const timer = new THREE.Timer();
         timer.connect(document);
@@ -18,8 +18,9 @@
             asset: 'Samba Dancing'
         };
 
-        const assets = [
+const assets = [
             'Samba Dancing',
+            'HipHopDancing',
             'morph_test',
             'monkey',
             'monkey_embedded_texture',
@@ -82,6 +83,7 @@
             controls.update();
 
             window.addEventListener('resize', onWindowResize);
+            document.addEventListener('keydown', onKeyDown);
 
             // stats
             stats = new Stats();
@@ -95,12 +97,15 @@
             });
 
             guiMorphsFolder = gui.addFolder('Morphs').hide();
+            animationsFolder = gui.addFolder('Animations').hide();
 
         }
 
         function loadAsset(asset) {
 
+            console.log('Loading asset:', asset);
             loader.load('./assets/models/fbx/' + asset + '.fbx', function (group) {
+
 
                 if (object) {
 
@@ -135,18 +140,35 @@
                 //
 
                 object = group;
+                console.log('Asset loaded. Animations:', object.animations ? object.animations.length : 0, object.animations ? object.animations.map(a => a.name) : 'none');
 
+                actions = {};
                 if (object.animations && object.animations.length) {
-
                     mixer = new THREE.AnimationMixer(object);
-
-                    const action = mixer.clipAction(object.animations[0]);
+                    object.animations.forEach((clip) => {
+                        const action = mixer.clipAction(clip);
+                        actions[clip.name] = action;
+                    });
+                    const firstClipName = object.animations[0].name;
+                    switchAnimation(firstClipName);
+                } else if (asset === 'HipHopDancing') {
+                    // Procedural hip-hop dance fallback
+                    mixer = new THREE.AnimationMixer(object);
+                    const clip = createHipHopClip(object);
+                    const action = mixer.clipAction(clip);
                     action.play();
-
+                    actions['HipHopDance'] = action;
+                    animationsFolder.children.forEach((child) => child.destroy());
+                    animationsFolder.add({ 'HipHopDance': () => switchAnimation('HipHopDance') }, 'HipHopDance');
                 } else {
-
                     mixer = null;
-
+                }
+                if (Object.keys(actions).length > 0) {
+                    animationsFolder.show();
+                    animationsFolder.children.forEach((child) => child.destroy());
+                    Object.keys(actions).forEach((name) => {
+                        animationsFolder.add({ [name]: () => switchAnimation(name) }, name);
+                    });
                 }
 
                 guiMorphsFolder.children.forEach((child) => child.destroy());
@@ -191,6 +213,61 @@
         }
 
         //
+
+        function switchAnimation(clipName) {
+            if (currentAction) {
+                currentAction.fadeOut(0.25);
+            }
+            const action = actions[clipName];
+            if (action) {
+                action.reset().setEffectiveTimeScale(1).fadeIn(0.25).play();
+                currentAction = action;
+            }
+        }
+
+        function onKeyDown(event) {
+            switch (event.code) {
+                case 'Digit1':
+                    params.asset = 'Samba Dancing';
+                    gui.controllers[0].setValue();
+                    break;
+                case 'Digit2':
+                    params.asset = 'HipHopDancing';
+                    gui.controllers[0].setValue();
+                    break;
+            }
+        }
+
+        function createHipHopClip(object) {
+            const skeleton = object.getObjectByName('mixamorig:Hips') ? object.getObjectByName('mixamorig:Hips').skeleton : object.traverse((child) => child.isBone ? child : null);
+            const tracks = [];
+            const duration = 2.0;
+            const times = [0, 0.5, 1.0, 1.5, 2.0];
+            const hips = object.getObjectByName('mixamorig:Hips') || object.children[0];
+            const leftArm = object.getObjectByName('mixamorig:LeftArm') || null;
+            const rightArm = object.getObjectByName('mixamorig:RightArm') || null;
+            const leftLeg = object.getObjectByName('mixamorig:LeftUpLeg') || null;
+            const rightLeg = object.getObjectByName('mixamorig:RightUpLeg') || null;
+
+            // Hips sway
+            const hipsRotation = new THREE.VectorKeyframeTrack('.rotation[1]', times, [0, 0.2, 0, -0.2, 0]);
+            tracks.push(hipsRotation);
+
+            if (leftArm) {
+                const leftArmRotationX = new THREE.VectorKeyframeTrack(leftArm.uuid + '.rotation[0]', times, [0, 0.5, 0, -0.5, 0]);
+                tracks.push(leftArmRotationX);
+            }
+            if (rightArm) {
+                const rightArmRotationX = new THREE.VectorKeyframeTrack(rightArm.uuid + '.rotation[0]', times, [0, -0.5, 0, 0.5, 0]);
+                tracks.push(rightArmRotationX);
+            }
+            if (leftLeg) {
+                const leftLegRotationY = new THREE.VectorKeyframeTrack(leftLeg.uuid + '.rotation[1]', times, [0, 0.3, 0, -0.3, 0]);
+                tracks.push(leftLegRotationY);
+            }
+
+            return new THREE.AnimationClip('HipHopDance', duration, tracks);
+        }
 
         function animate() {
 
